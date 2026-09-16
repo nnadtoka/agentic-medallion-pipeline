@@ -1,0 +1,41 @@
+template_id: seller_performance_lookup
+name: Seller performance lookup
+description: >
+  Full performance picture for one seller -- order count, GMV, freight ratio, assortment
+  and customer reach, and average review score. Answers "what does this seller's overall
+  performance look like".
+sql_template: |
+  select
+      seller_id,
+      order_count,
+      canceled_order_count,
+      item_count,
+      gmv,
+      freight_total,
+      freight_ratio,
+      distinct_product_count,
+      distinct_category_count,
+      distinct_customer_count,
+      distinct_customer_state_count,
+      single_seller_order_count,
+      reviewed_single_seller_order_count,
+      avg_review_score,
+      first_order_ts,
+      latest_order_ts
+  from gold.agg_seller_performance
+  where seller_id = %(seller_id)s
+target_schema: gold
+max_limit: 1
+parameters:
+  - name: seller_id
+    kind: value
+    type: string
+    required: true
+    # avg_review_score is restricted (in agg_seller_performance itself, not
+    # here) to orders where this seller is the only seller on the order --
+    # reviews are attached to the order, not to a specific seller, so a
+    # multi-seller order's review can't be honestly attributed to any one
+    # of them. single_seller_order_count is how many such orders exist;
+    # reviewed_single_seller_order_count (usually slightly lower) is the
+    # exact denominator avg_review_score actually uses, since not every
+    # order gets reviewed. Both are shown for transparency.

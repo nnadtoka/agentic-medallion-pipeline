@@ -1,0 +1,39 @@
+template_id: top_categories_by_metric
+name: Top product categories by metric
+description: >
+  Ranks product categories by a chosen metric -- merchandise value, freight value, total
+  value, item count, or distinct customers reached -- across all customer purchase
+  activity. Answers "which categories generate the most merchandise value" or "which
+  categories reach the most customers".
+sql_template: |
+  select
+      category_name,
+      {metric} as metric_value
+  from gold.fct_customer_category_activity_daily
+  group by category_name
+  order by {metric} desc nulls last
+  limit %(limit)s
+target_schema: gold
+max_limit: 100
+parameters:
+  - name: metric
+    kind: identifier
+    type: string
+    required: true
+    enum:
+      item_value: sum(item_value)
+      freight_value: sum(freight_value)
+      total_value: sum(total_value)
+      item_count: sum(item_count)
+      distinct_customer_count: count(distinct customer_unique_id)
+    # fct_customer_category_activity_daily is already customer-category-day
+    # grained (one row per combination), so grouping by category_name alone
+    # and summing is safe -- no fan-out risk, unlike top_n_by_metric.yaml's
+    # product_category dimension, which is deferred there specifically
+    # because fct_order_items/fct_orders aren't pre-reduced to this grain.
+  - name: limit
+    kind: value
+    type: integer
+    required: false
+    default: 10
+    min: 1

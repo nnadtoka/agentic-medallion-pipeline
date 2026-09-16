@@ -1,0 +1,97 @@
+# Eval cases for search_semantic_catalog -- run via
+# pipeline/tests/mcp_agent/evals/test_search_evals.py against the live
+# mcp-server. Not authoritative test fixtures (those are the hand-rolled
+# synthetic specs in pipeline/tests/mcp_agent/test_query_templates.py) --
+# this is a *behavior* eval: does search surface the right thing for a
+# real natural-language question, and does it correctly find nothing for
+# an unrelated one.
+#
+# similarity_floor is the single pass/fail threshold this whole eval uses,
+# empirically grounded rather than guessed: real matching questions scored
+# 0.45-0.76 when manually checked live; the one off-topic question tried
+# (a linked-list traversal ask) scored 0.199. 0.30 sits cleanly in that
+# gap -- see mcp_agent/README.md's "Try it yourself" section for how that
+# was measured.
+similarity_floor: 0.30
+
+cases:
+  # One positive case per seeded query template -- exercises all 8.
+  - query: "which states have the highest GMV"
+    object_type: query_template
+    expect_uri: catalog://query-templates/top_n_by_metric
+
+  - query: "how has GMV trended month over month"
+    object_type: query_template
+    expect_uri: catalog://query-templates/metric_over_time
+
+  - query: "what's the full order history and lifetime value for one customer"
+    object_type: query_template
+    expect_uri: catalog://query-templates/customer_order_history_lookup
+
+  - query: "who are our biggest customers by total spend"
+    object_type: query_template
+    expect_uri: catalog://query-templates/top_customers_by_lifetime_value
+
+  - query: "which high-value customers have gone quiet"
+    object_type: query_template
+    expect_uri: catalog://query-templates/quiet_key_accounts
+
+  - query: "what does this seller's overall performance look like"
+    object_type: query_template
+    expect_uri: catalog://query-templates/seller_performance_lookup
+
+  - query: "rank sellers by their average review score"
+    object_type: query_template
+    expect_uri: catalog://query-templates/top_sellers_by_metric
+
+  - query: "which of our best sellers haven't sold anything recently"
+    object_type: query_template
+    expect_uri: catalog://query-templates/quiet_key_sellers
+
+  - query: "what does this customer's full profile look like, including location and category interests"
+    object_type: query_template
+    expect_uri: catalog://query-templates/customer_360_lookup
+
+  - query: "which product categories generate the most merchandise value"
+    object_type: query_template
+    expect_uri: catalog://query-templates/top_categories_by_metric
+
+  - query: "what percentage of total GMV comes from our biggest sellers, split into deciles"
+    object_type: query_template
+    expect_uri: catalog://query-templates/seller_revenue_concentration
+
+  # Table/column search positives -- no object_type filter, so this also
+  # confirms templates don't drown out a genuinely better table/column
+  # match (or vice versa) when nothing constrains the search.
+  - query: "which sellers are late on delivery"
+    expect_uri: catalog://gold/fct_order_items
+    expect_column: shipping_limit_date
+
+  - query: "freight amount allocated to an order item"
+    expect_column: freight_value  # matches on either fct_orders or fct_order_items
+    # Reworded from "what does the freight value on an order item
+    # represent" -- that phrasing started losing to
+    # fct_customer_category_activity_daily.total_value ("Merchandise plus
+    # freight value") once the catalog grew with new marts this session,
+    # not because of any bug: both are legitimately close matches for that
+    # question. This phrasing (closer to freight_value's own actual
+    # description text) gives clean separation (0.71 vs 0.63) instead.
+
+  - query: "how many orders were paid via installments"
+    expect_column: payment_installments  # matches on either fct_orders or fct_order_payments
+
+  # No-match negatives: genuinely unrelated to the gold catalog. The
+  # safety property under test is that nothing scores above
+  # similarity_floor -- not that the search returns literally zero rows
+  # (cosine search always returns *something*, ranked).
+  - query: "write a recursive traversal of a linked list"
+    expect: no_match
+
+  - query: "what's the capital of Australia"
+    expect: no_match
+
+  - query: "recommend a good recipe for chocolate cake"
+    expect: no_match
+
+  - query: "explain how TCP handshakes work"
+    expect: no_match

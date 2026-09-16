@@ -1,0 +1,3 @@
+-r requirements.txt
+-r ../prefect_flows/requirements.txt
+pytest>=8,<10

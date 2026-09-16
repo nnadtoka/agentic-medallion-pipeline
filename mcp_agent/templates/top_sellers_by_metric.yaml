@@ -1,0 +1,60 @@
+template_id: top_sellers_by_metric
+name: Top sellers by metric
+description: >
+  Ranks individual sellers by a chosen performance metric -- GMV, order count, item count,
+  freight ratio, average review score, or customer/category reach -- ascending or
+  descending. Answers questions like "who are our top sellers by revenue", "which sellers
+  have the highest freight ratio", or "which sellers have the poorest average reviews".
+sql_template: |
+  select
+      seller_id,
+      {metric} as metric_value,
+      gmv,
+      order_count,
+      avg_review_score,
+      freight_ratio,
+      distinct_customer_count,
+      distinct_customer_state_count
+  from gold.agg_seller_performance
+  order by {metric} {sort_direction} nulls last
+  limit %(limit)s
+target_schema: gold
+max_limit: 100
+parameters:
+  - name: metric
+    kind: identifier
+    type: string
+    required: true
+    enum:
+      gmv: gmv
+      order_count: order_count
+      item_count: item_count
+      freight_ratio: freight_ratio
+      avg_review_score: avg_review_score
+      distinct_customer_count: distinct_customer_count
+      distinct_customer_state_count: distinct_customer_state_count
+      distinct_category_count: distinct_category_count
+    # Every enum value here maps directly to an existing column on
+    # agg_seller_performance -- already a fully rolled-up, one-row-per-seller
+    # table -- so no aggregation expression is needed and there's no fan-out
+    # risk, unlike top_n_by_metric.yaml's metric enum, which has to express
+    # each metric as a live aggregate over order-grained fct_orders.
+  - name: sort_direction
+    kind: identifier
+    type: string
+    required: true
+    enum:
+      desc: desc
+      asc: asc
+    # Required, not defaulted: resolve_query() doesn't currently support a
+    # default value for identifier-kind params (only value-kind params have
+    # that), and making this required avoids touching that guardrail logic
+    # for a single sort toggle. Use desc for "best"/"most" questions (top
+    # GMV, highest freight ratio) and asc for "worst"/"least" questions
+    # (poorest average reviews, fewest orders).
+  - name: limit
+    kind: value
+    type: integer
+    required: false
+    default: 10
+    min: 1

@@ -1,0 +1,35 @@
+template_id: seller_revenue_concentration
+name: Seller revenue concentration
+description: >
+  Splits all sellers into GMV-ranked buckets (deciles by default) and reports what share of
+  total seller revenue each bucket holds. Answers "how concentrated is our GMV among our
+  top sellers" or "what percentage of revenue comes from our smallest sellers".
+sql_template: |
+  with ranked as (
+      select
+          seller_id,
+          gmv,
+          ntile(%(bucket_count)s) over (order by gmv desc) as bucket
+      from gold.agg_seller_performance
+  )
+  select
+      bucket,
+      count(*) as seller_count,
+      sum(gmv) as bucket_gmv,
+      round(100.0 * sum(gmv) / nullif(sum(sum(gmv)) over (), 0), 2) as pct_of_total_gmv
+  from ranked
+  group by bucket
+  order by bucket
+target_schema: gold
+max_limit: 100
+parameters:
+  - name: bucket_count
+    kind: value
+    type: integer
+    required: false
+    default: 10
+    min: 2
+    max: 100
+    # No `limit` param: this template's output size is exactly
+    # bucket_count rows (already bounded by min/max above), not a
+    # ranked-and-truncated list, so there's nothing for a row limit to cap.

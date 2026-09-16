@@ -1,0 +1,324 @@
+version: 2
+
+models:
+  - name: dim_location
+    description: Conformed customer and merchant locations, deduplicated by ZIP prefix, city, and state.
+    columns:
+      - {name: location_id, description: "Deterministic location identifier and dimension grain.", data_tests: [not_null, unique]}
+      - {name: zip_code_prefix, description: "Postal-code prefix retained as text."}
+      - {name: city, description: "City name from the source."}
+      - {name: state, description: "Uppercase two-letter state code."}
+      - {name: first_seen_ts, description: "First warehouse observation of this location.", data_tests: [not_null]}
+      - {name: last_seen_ts, description: "Latest warehouse observation of this location.", data_tests: [not_null]}
+      - {name: updated_ts, description: "Time dbt produced the dimension row.", data_tests: [not_null]}
+
+  - name: dim_unique_customer_profile
+    description: Type 2 history of observed customer locations at the stable customer identity grain.
+    columns:
+      - {name: customer_profile_id, description: "Deterministic identifier for a customer profile version.", data_tests: [not_null, unique]}
+      - {name: customer_unique_id, description: "Stable customer business key.", data_tests: [not_null]}
+      - name: location_id
+        description: Location associated with the version.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_location'), field: location_id}
+      - {name: version_start_ts, description: "Inclusive start of the observed profile version.", data_tests: [not_null]}
+      - {name: version_end_ts, description: "Exclusive end of the profile version; null for the current version."}
+      - {name: is_current, description: "True for the single open profile version per customer.", data_tests: [not_null]}
+      - {name: first_seen_ts, description: "First warehouse observation supporting the version.", data_tests: [not_null]}
+      - {name: last_seen_ts, description: "Latest business observation supporting the version.", data_tests: [not_null]}
+      - {name: created_ts, description: "Latest contributing source creation timestamp.", data_tests: [not_null]}
+      - {name: updated_ts, description: "Time dbt produced the dimension row.", data_tests: [not_null]}
+
+  - name: agg_customer_lifetime_value
+    description: Daily full periodic snapshot of cumulative value and activity for every stable customer as of an explicit date.
+    columns:
+      - {name: as_of_date, description: "Snapshot date.", data_tests: [not_null]}
+      - {name: customer_unique_id, description: "Stable customer identifier and snapshot grain component.", data_tests: [not_null]}
+      - {name: customer_profile_id, description: "Profile version applicable at the snapshot date."}
+      - {name: location_id, description: "Customer location applicable at the snapshot date."}
+      - {name: first_order_ts, description: "First order observed through the snapshot date."}
+      - {name: latest_order_ts, description: "Latest order observed through the snapshot date."}
+      - {name: order_count, description: "Cumulative distinct orders.", data_tests: [not_null, non_negative]}
+      - {name: delivered_order_count, description: "Cumulative delivered orders.", data_tests: [not_null, non_negative]}
+      - {name: canceled_order_count, description: "Cumulative canceled orders.", data_tests: [not_null, non_negative]}
+      - {name: item_value, description: "Cumulative merchandise value.", data_tests: [not_null, non_negative]}
+      - {name: freight_value, description: "Cumulative freight value.", data_tests: [not_null, non_negative]}
+      - {name: gross_order_value, description: "Cumulative merchandise plus freight value.", data_tests: [not_null, non_negative]}
+      - {name: payment_value, description: "Cumulative recorded payments.", data_tests: [not_null, non_negative]}
+      - {name: average_order_value, description: "Gross order value divided by order count.", data_tests: [not_null, non_negative]}
+      - {name: average_review_score, description: "Average order-level review score."}
+      - {name: days_since_last_order, description: "Calendar days from the actual as-of date to latest order."}
+      - {name: customer_tenure_days, description: "Calendar days from first order through the as-of date."}
+      - {name: active_month_count, description: "Distinct purchasing months.", data_tests: [not_null, non_negative]}
+      - {name: distinct_product_count, description: "Distinct products purchased.", data_tests: [not_null, non_negative]}
+      - {name: distinct_category_count, description: "Distinct categories purchased.", data_tests: [not_null, non_negative]}
+      - {name: distinct_merchant_count, description: "Distinct merchants purchased from.", data_tests: [not_null, non_negative]}
+      - {name: repeat_customer, description: "True when cumulative order count exceeds one.", data_tests: [not_null]}
+      - {name: snapshot_created_ts, description: "Time the snapshot was produced.", data_tests: [not_null]}
+      - {name: source_updated_ts, description: "Latest contributing order-fact update timestamp."}
+
+  - name: agg_customer_interests
+    description: Daily customer-interest snapshot inferred from purchases, with lifetime category membership and rolling 7/30-day activity.
+    columns:
+      - {name: as_of_date, description: "Snapshot date.", data_tests: [not_null]}
+      - {name: customer_unique_id, description: "Stable customer identifier and snapshot grain component.", data_tests: [not_null]}
+      - {name: distinct_category_count, description: "Categories purchased through the snapshot date.", data_tests: [not_null, non_negative]}
+      - {name: categories, description: "Category-keyed JSON containing 7/30-day metrics and seven complete calendar days.", data_tests: [not_null]}
+      - {name: activity_by_day_7d, description: "Customer-level activity JSON keyed by each of the trailing seven calendar dates.", data_tests: [not_null]}
+      - {name: top_category_7d, description: "Highest-merchandise-value category in the trailing seven days."}
+      - {name: top_category_30d, description: "Highest-merchandise-value category in the trailing thirty days."}
+      - {name: item_count_7d, description: "Purchased items in the trailing seven days.", data_tests: [not_null, non_negative]}
+      - {name: item_value_7d, description: "Merchandise value in the trailing seven days.", data_tests: [not_null, non_negative]}
+      - {name: item_count_30d, description: "Purchased items in the trailing thirty days.", data_tests: [not_null, non_negative]}
+      - {name: item_value_30d, description: "Merchandise value in the trailing thirty days.", data_tests: [not_null, non_negative]}
+      - {name: snapshot_created_ts, description: "Time the snapshot was produced.", data_tests: [not_null]}
+
+  - name: fct_customer_category_activity_daily
+    description: Relational daily customer-category purchase activity for cross-customer BI and drill-down, excluding canceled orders.
+    columns:
+      - {name: customer_unique_id, description: "Stable customer identifier and grain component.", data_tests: [not_null]}
+      - {name: category_name, description: "Resolved product category and grain component.", data_tests: [not_null]}
+      - {name: activity_date, description: "Purchase date and grain component.", data_tests: [not_null]}
+      - {name: item_count, description: "Purchased line-item count.", data_tests: [not_null, non_negative]}
+      - {name: item_value, description: "Merchandise value in Brazilian reais.", data_tests: [not_null, non_negative]}
+      - {name: freight_value, description: "Freight value in Brazilian reais.", data_tests: [not_null, non_negative]}
+      - {name: total_value, description: "Merchandise plus freight value.", data_tests: [not_null, non_negative]}
+      - {name: first_purchase_ts, description: "First purchase timestamp represented by the row.", data_tests: [not_null]}
+      - {name: latest_purchase_ts, description: "Latest purchase timestamp represented by the row.", data_tests: [not_null]}
+      - {name: created_ts, description: "Latest contributing source creation timestamp.", data_tests: [not_null]}
+      - {name: updated_ts, description: "Time dbt produced the fact row.", data_tests: [not_null]}
+
+  - name: customer_360_current
+    description: Flattened current customer view using the latest lifetime and interest snapshots plus the applicable conformed location.
+    columns:
+      - {name: as_of_date, description: "Latest available customer snapshot date.", data_tests: [not_null]}
+      - {name: customer_unique_id, description: "Stable customer identifier and view grain.", data_tests: [not_null, unique]}
+      - {name: customer_profile_id, description: "Profile version applicable to the latest snapshot."}
+      - {name: location_id, description: "Conformed location applicable to the latest snapshot."}
+      - {name: zip_code_prefix, description: "Current postal-code prefix."}
+      - {name: city, description: "Current city."}
+      - {name: state, description: "Current state."}
+      - {name: order_count, description: "Cumulative distinct orders.", data_tests: [not_null, non_negative]}
+      - {name: gross_order_value, description: "Cumulative merchandise plus freight value.", data_tests: [not_null, non_negative]}
+      - {name: average_order_value, description: "Cumulative average order value.", data_tests: [not_null, non_negative]}
+      - {name: days_since_last_order, description: "Days from the latest snapshot date to the latest order."}
+      - {name: distinct_merchant_count, description: "Distinct merchants purchased from.", data_tests: [not_null, non_negative]}
+      - {name: top_category_7d, description: "Highest-value category in the trailing seven days."}
+      - {name: top_category_30d, description: "Highest-value category in the trailing thirty days."}
+      - {name: item_count_7d, description: "Purchased items in the trailing seven days.", data_tests: [not_null, non_negative]}
+      - {name: item_value_7d, description: "Merchandise value in the trailing seven days.", data_tests: [not_null, non_negative]}
+      - {name: item_count_30d, description: "Purchased items in the trailing thirty days.", data_tests: [not_null, non_negative]}
+      - {name: item_value_30d, description: "Merchandise value in the trailing thirty days.", data_tests: [not_null, non_negative]}
+      - {name: categories, description: "Category-keyed interest payload."}
+      - {name: activity_by_day_7d, description: "Seven-day calendar activity payload."}
+
+  - name: dim_customer
+    description: One row per Olist customer identifier, enriched with observed order history.
+    columns:
+      - name: customer_id
+        description: Order-specific customer identifier and dimension grain.
+        data_tests: [not_null, unique]
+      - {name: customer_unique_id, description: "Stable identifier used to recognize the same customer across orders."}
+      - {name: customer_zip_code_prefix, description: "First five digits of the customer's postal code."}
+      - {name: customer_city, description: "Customer city as supplied by Olist."}
+      - {name: customer_state, description: "Two-letter Brazilian state code for the customer."}
+      - {name: first_order_ts, description: "Earliest purchase timestamp currently observed for the customer identifier."}
+      - {name: latest_order_ts, description: "Latest purchase timestamp currently observed for the customer identifier."}
+      - {name: order_count, description: "Number of currently ingested orders for the customer identifier."}
+      - name: created_ts
+        description: Latest creation timestamp from the customer snapshot or observed order history.
+        data_tests: [not_null]
+      - {name: src_batch_id, description: "Ingestion batch identifier that supplied the customer snapshot row."}
+
+  - name: dim_product
+    description: One row per product with translated category where available.
+    columns:
+      - name: product_id
+        description: Product identifier and dimension grain.
+        data_tests: [not_null, unique]
+      - {name: product_category_name, description: "Product category name in Portuguese."}
+      - {name: product_category_name_english, description: "English category translation when a mapping is available."}
+      - {name: product_name_length, description: "Character count of the product name."}
+      - {name: product_description_length, description: "Character count of the product description."}
+      - {name: product_photos_qty, description: "Number of product photos published in the listing."}
+      - {name: product_weight_g, description: "Product weight in grams."}
+      - {name: product_length_cm, description: "Product package length in centimeters."}
+      - {name: product_height_cm, description: "Product package height in centimeters."}
+      - {name: product_width_cm, description: "Product package width in centimeters."}
+      - name: created_ts
+        description: Latest creation timestamp from the product or category-translation source row.
+        data_tests: [not_null]
+      - {name: src_batch_id, description: "Ingestion batch identifier that supplied the product snapshot row."}
+
+  - name: dim_seller
+    description: One row per seller.
+    columns:
+      - name: seller_id
+        description: Seller identifier and dimension grain.
+        data_tests: [not_null, unique]
+      - {name: seller_zip_code_prefix, description: "First five digits of the seller's postal code."}
+      - {name: seller_city, description: "Seller city as supplied by Olist."}
+      - {name: seller_state, description: "Two-letter Brazilian state code for the seller."}
+      - name: created_ts
+        description: Timestamp when ingestion wrote the seller snapshot row to Bronze.
+        data_tests: [not_null]
+      - {name: src_batch_id, description: "Ingestion batch identifier that supplied the seller snapshot row."}
+
+  - name: agg_seller_performance
+    description: >
+      Per-seller rollup of order volume, merchandise value, freight, assortment breadth,
+      customer reach, and review score, excluding canceled orders. Review score and its
+      denominator are restricted to reviewed orders where this seller is the only seller
+      on the order, since reviews are attached to the order, not to a specific seller.
+    columns:
+      - name: seller_id
+        description: Seller identifier and dimension grain.
+        data_tests: [not_null, unique]
+      - {name: order_count, description: "Non-canceled orders containing at least one item from this seller.", data_tests: [not_null, non_negative]}
+      - {name: canceled_order_count, description: "Canceled orders containing at least one item from this seller.", data_tests: [not_null, non_negative]}
+      - {name: item_count, description: "Non-canceled order-item rows from this seller.", data_tests: [not_null, non_negative]}
+      - {name: gmv, description: "Sum of non-canceled item prices in Brazilian reais.", data_tests: [not_null, non_negative]}
+      - {name: freight_total, description: "Sum of non-canceled item-level freight charges in Brazilian reais.", data_tests: [not_null, non_negative]}
+      - {name: freight_ratio, description: "freight_total divided by gmv; null when gmv is zero."}
+      - {name: distinct_product_count, description: "Distinct products sold across non-canceled orders.", data_tests: [not_null, non_negative]}
+      - {name: distinct_category_count, description: "Distinct product categories sold across non-canceled orders.", data_tests: [not_null, non_negative]}
+      - {name: distinct_customer_count, description: "Distinct stable customers (customer_unique_id) served across non-canceled orders.", data_tests: [not_null, non_negative]}
+      - {name: distinct_customer_state_count, description: "Distinct customer states reached across non-canceled orders.", data_tests: [not_null, non_negative]}
+      - {name: single_seller_order_count, description: "Non-canceled orders where this seller is the only seller, including orders without a review.", data_tests: [not_null, non_negative]}
+      - {name: reviewed_single_seller_order_count, description: "Reviewed, non-canceled, single-seller orders -- the exact denominator behind avg_review_score.", data_tests: [not_null, non_negative]}
+      - {name: avg_review_score, description: "Average order-level review score across this seller's single-seller, non-canceled orders only."}
+      - {name: first_order_ts, description: "Earliest non-canceled order timestamp involving this seller."}
+      - {name: latest_order_ts, description: "Latest non-canceled order timestamp involving this seller."}
+      - {name: source_updated_ts, description: "Latest contributing order-fact update timestamp."}
+      - {name: updated_ts, description: "Time dbt produced the row.", data_tests: [not_null]}
+
+  - name: dim_date
+    description: Calendar dates covering the date range currently present in Bronze orders.
+    columns:
+      - name: date_key
+        description: Integer calendar key in YYYYMMDD format.
+        data_tests: [not_null, unique]
+      - name: date_day
+        description: Calendar date represented by the row.
+        data_tests: [not_null, unique]
+      - {name: year_number, description: "Four-digit calendar year."}
+      - {name: quarter_number, description: "Calendar quarter number from 1 through 4."}
+      - {name: month_number, description: "Calendar month number from 1 through 12."}
+      - {name: month_name, description: "English calendar month name."}
+      - {name: iso_day_of_week, description: "ISO weekday number where Monday is 1 and Sunday is 7."}
+      - {name: day_name, description: "English weekday name."}
+      - {name: iso_week_number, description: "ISO week number."}
+      - {name: is_weekend, description: "True for Saturday and Sunday."}
+      - name: created_ts
+        description: Timestamp of the dbt run that created the date-dimension row.
+        data_tests: [not_null]
+
+  - name: fct_orders
+    description: One row per order, with item, payment, and review aggregates.
+    columns:
+      - name: order_id
+        description: Order identifier and fact grain.
+        data_tests: [not_null, unique]
+      - name: customer_id
+        description: Customer identifier associated with the order.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_customer')
+                field: customer_id
+      - name: purchase_date_key
+        description: YYYYMMDD key for the order purchase date.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+      - {name: order_status, description: "Latest source-system status of the order."}
+      - {name: order_purchase_timestamp, description: "Timestamp when the customer placed the order."}
+      - {name: order_approved_at, description: "Timestamp when payment approval was recorded."}
+      - {name: order_delivered_carrier_date, description: "Timestamp when the order was handed to the carrier."}
+      - {name: order_delivered_customer_date, description: "Timestamp when the order was delivered to the customer."}
+      - {name: order_estimated_delivery_date, description: "Estimated customer delivery timestamp provided at purchase."}
+      - {name: item_count, description: "Number of line items in the order; zero when no item rows are available."}
+      - {name: distinct_product_count, description: "Number of distinct products in the order."}
+      - {name: distinct_seller_count, description: "Number of distinct sellers represented in the order."}
+      - {name: item_value, description: "Sum of item prices for the order in Brazilian reais."}
+      - {name: freight_value, description: "Sum of item-level freight amounts for the order in Brazilian reais."}
+      - {name: order_item_value, description: "Combined item price and freight value for the order in Brazilian reais."}
+      - {name: payment_count, description: "Number of payment records associated with the order."}
+      - {name: payment_installments, description: "Sum of installment counts across payment records for the order."}
+      - {name: payment_value, description: "Total payment value for the order in Brazilian reais."}
+      - {name: review_count, description: "Number of review records associated with the order."}
+      - {name: average_review_score, description: "Mean review score for the order, or null when no review is available."}
+      - name: created_ts
+        description: Timestamp when dbt first inserted the incremental fact row.
+        data_tests: [not_null]
+      - name: updated_ts
+        description: Timestamp when dbt most recently inserted or updated the fact row.
+        data_tests: [not_null]
+      - {name: src_batch_id, description: "Ingestion batch identifier that supplied the order row."}
+
+  - name: fct_order_items
+    description: One row per order line item.
+    columns:
+      - name: order_id
+        description: Identifier of the order containing the item and part of the fact grain.
+        data_tests: [not_null]
+      - name: order_item_id
+        description: Item sequence within the order and part of the fact grain.
+        data_tests: [not_null]
+      - name: product_id
+        description: Identifier of the purchased product.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_product')
+                field: product_id
+      - name: seller_id
+        description: Identifier of the seller fulfilling the item.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_seller')
+                field: seller_id
+      - {name: purchase_date_key, description: "Nullable YYYYMMDD purchase-date key; null until the matching order partition has been ingested."}
+      - {name: shipping_limit_date, description: "Seller shipping deadline for the item."}
+      - {name: price, description: "Item price in Brazilian reais."}
+      - {name: freight_value, description: "Freight amount allocated to the item in Brazilian reais."}
+      - {name: total_item_value, description: "Combined price and freight value for the item in Brazilian reais."}
+      - name: created_ts
+        description: Timestamp when dbt first inserted the incremental fact row.
+        data_tests: [not_null]
+      - name: updated_ts
+        description: Timestamp when dbt most recently inserted or updated the fact row.
+        data_tests: [not_null]
+      - {name: src_batch_id, description: "Ingestion batch identifier that supplied the order-item row."}
+
+  - name: fct_order_payments
+    description: One row per payment sequence within an order.
+    columns:
+      - name: order_id
+        description: Identifier of the paid order and part of the fact grain.
+        data_tests: [not_null]
+      - name: payment_sequential
+        description: Payment sequence within the order and part of the fact grain.
+        data_tests: [not_null]
+      - {name: purchase_date_key, description: "Nullable YYYYMMDD purchase-date key; null until the matching order partition has been ingested."}
+      - {name: payment_type, description: "Payment method reported by Olist."}
+      - {name: payment_installments, description: "Number of installments selected for the payment."}
+      - name: payment_value
+        description: Payment amount in Brazilian reais.
+        data_tests: [non_negative]
+      - name: created_ts
+        description: Timestamp when dbt first inserted the incremental fact row.
+        data_tests: [not_null]
+      - name: updated_ts
+        description: Timestamp when dbt most recently inserted or updated the fact row.
+        data_tests: [not_null]
+      - {name: src_batch_id, description: "Ingestion batch identifier that supplied the payment row."}

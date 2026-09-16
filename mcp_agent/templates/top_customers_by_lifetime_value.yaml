@@ -1,0 +1,36 @@
+template_id: top_customers_by_lifetime_value
+name: Top customers by lifetime value
+description: >
+  Ranks individual customers against each other by total lifetime spend --
+  strictly top-N, not a threshold. Answers "who are our biggest customers"
+  or "who are our top 10 accounts by revenue".
+sql_template: |
+  select
+      c.customer_unique_id,
+      (
+          select cc.customer_state
+          from gold.dim_customer cc
+          where cc.customer_unique_id = c.customer_unique_id
+          order by cc.latest_order_ts desc nulls last
+          limit 1
+      ) as customer_state,
+      count(distinct o.order_id) as order_count,
+      coalesce(sum(o.order_item_value), 0) as lifetime_value
+  from gold.dim_customer c
+  join gold.fct_orders o on o.customer_id = c.customer_id
+  group by c.customer_unique_id
+  order by lifetime_value desc
+  limit %(limit)s
+target_schema: gold
+max_limit: 100
+parameters:
+  - name: limit
+    kind: value
+    type: integer
+    required: false
+    default: 10
+    min: 1
+    # Grained on customer_unique_id, same reasoning as
+    # customer_order_history_lookup.yaml -- customer_id is order-specific,
+    # so ranking by it would rank individual orders dressed up as
+    # "customers", not real people.

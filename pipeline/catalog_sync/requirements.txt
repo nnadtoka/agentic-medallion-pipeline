@@ -1,0 +1,5 @@
+psycopg2-binary>=2.9,<3
+python-dotenv>=1.0,<2
+pgvector>=0.3,<1
+fastembed>=0.3,<1
+PyYAML>=6,<7

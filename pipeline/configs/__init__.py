@@ -1,0 +1,1 @@
+"""Non-secret pipeline configuration."""

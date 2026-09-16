@@ -1,0 +1,59 @@
+template_id: customer_order_history_lookup
+name: Customer order history lookup
+description: >
+  Full activity picture for one customer across all of their orders --
+  order count, first/latest order dates, lifetime value, average order
+  value, and days since their last order (relative to the most recent
+  order in the dataset, not real wall-clock time -- see below).
+# days_since_last_order is measured from the dataset's own max order date
+# (reference_date CTE), not now(): this is a static historical dataset
+# (currently only ~33 days of orders ingested, all from Oct-Nov 2017), so
+# comparing against real wall-clock time would show every customer as
+# "quiet" for ~9 years regardless of actual behavior -- not useful. The
+# dataset's own most-recent order is the only meaningful "today" for a
+# batch dataset like this.
+sql_template: |
+  with reference_date as (
+      select max(order_purchase_timestamp) as today from gold.fct_orders
+  )
+  select
+      c.customer_unique_id,
+      (
+          select cc.customer_state
+          from gold.dim_customer cc
+          where cc.customer_unique_id = c.customer_unique_id
+          order by cc.latest_order_ts desc nulls last
+          limit 1
+      ) as customer_state,
+      count(distinct o.order_id) as order_count,
+      min(o.order_purchase_timestamp) as first_order_ts,
+      max(o.order_purchase_timestamp) as latest_order_ts,
+      coalesce(sum(o.order_item_value), 0) as lifetime_value,
+      case when count(distinct o.order_id) > 0
+           then round(coalesce(sum(o.order_item_value), 0) / count(distinct o.order_id), 2)
+           else 0
+      end as avg_order_value,
+      extract(day from r.today - max(o.order_purchase_timestamp))::int as days_since_last_order
+  from gold.dim_customer c
+  left join gold.fct_orders o on o.customer_id = c.customer_id
+  cross join reference_date r
+  where c.customer_unique_id = %(customer_unique_id)s
+  group by c.customer_unique_id, r.today
+target_schema: gold
+max_limit: 1
+parameters:
+  - name: customer_unique_id
+    kind: value
+    type: string
+    required: true
+    # Deliberately customer_unique_id, not customer_id: Olist assigns a
+    # fresh customer_id per order, so customer_id-grained joins/aggregates
+    # (like dim_customer's own order_count/first_order_ts/latest_order_ts,
+    # sourced from int_customer_order_history) almost always show exactly
+    # one order per row. customer_unique_id is the stable person identifier
+    # -- this template recomputes order_count/lifetime_value/etc. itself
+    # from fct_orders grouped by customer_unique_id rather than trusting
+    # dim_customer's per-customer_id columns, so a repeat customer's full
+    # history actually shows up as one row: customer_id is order-specific
+    # in Olist's data (a repeat customer gets a new one per order), while
+    # customer_unique_id is the stable person-level identifier.

@@ -1,0 +1,31 @@
+name: agentic_medallion_pipeline
+version: 1.0.0
+config-version: 2
+
+profile: agentic_medallion_pipeline
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+target-path: target
+clean-targets: ["target", "dbt_packages", "logs"]
+
+models:
+  agentic_medallion_pipeline:
+    staging:
+      +schema: staging
+      +materialized: view
+    intermediate:
+      +schema: staging
+      +materialized: view
+    marts:
+      +schema: marts_candidate
+      +materialized: table
+      # dbt_transformer owns marts_candidate objects (it creates them), so
+      # unlike catalog_writer it can actually COMMENT ON them. Postgres
+      # comments are keyed by OID, not schema, so they survive the later
+      # ALTER TABLE ... SET SCHEMA gold promotion untouched -- no separate
+      # sync step needed to carry descriptions into gold.
+      +persist_docs:
+        relation: true
+        columns: true

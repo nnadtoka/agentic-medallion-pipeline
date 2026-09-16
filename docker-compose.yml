@@ -1,0 +1,131 @@
+name: agentic-medallion-pipeline
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    # Full-history dbt builds run many PostgreSQL checks concurrently. Docker's
+    # 64 MiB default /dev/shm is too small for their parallel hash/aggregate
+    # workers and causes false "No space left on device" quality failures.
+    shm_size: 1gb
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-analytics_db}
+      POSTGRES_USER: ${POSTGRES_USER:-admin_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      ANALYST_PASSWORD: ${ANALYST_PASSWORD:?ANALYST_PASSWORD must be set}
+      INGESTION_PASSWORD: ${INGESTION_PASSWORD:?INGESTION_PASSWORD must be set}
+      DBT_PASSWORD: ${DBT_PASSWORD:?DBT_PASSWORD must be set}
+      GOLD_PROMOTER_PASSWORD: ${GOLD_PROMOTER_PASSWORD:?GOLD_PROMOTER_PASSWORD must be set}
+      MCP_READER_PASSWORD: ${MCP_READER_PASSWORD:?MCP_READER_PASSWORD must be set}
+      CATALOG_WRITER_PASSWORD: ${CATALOG_WRITER_PASSWORD:?CATALOG_WRITER_PASSWORD must be set}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER:-admin_user} -d ${POSTGRES_DB:-analytics_db}
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  prefect-server:
+    image: prefecthq/prefect:3.8.5-python3.12
+    command: prefect server start --host 0.0.0.0
+    ports:
+      - "127.0.0.1:4200:4200"
+    volumes:
+      - prefect-data:/root/.prefect
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:4200/api/health', timeout=2)
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  pipeline-engine:
+    image: agentic-medallion-pipeline-engine:local
+    build:
+      context: .
+      dockerfile: docker/pipeline-engine/Dockerfile
+    environment:
+      PREFECT_API_URL: http://prefect-server:4200/api
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-analytics_db}
+      POSTGRES_USER: ingestion_writer
+      POSTGRES_PASSWORD: ${INGESTION_PASSWORD:?INGESTION_PASSWORD must be set}
+      DBT_HOST: postgres
+      DBT_PORT: 5432
+      DBT_USER: dbt_transformer
+      DBT_PASSWORD: ${DBT_PASSWORD:?DBT_PASSWORD must be set}
+      DBT_PROFILES_DIR: /app/dbt
+      DBT_PROJECT_DIR: /app/dbt
+      OLIST_DATA_DIR: /app/data/olist
+      CATALOG_DB_USER: catalog_writer
+      CATALOG_DB_PASSWORD: ${CATALOG_WRITER_PASSWORD:?CATALOG_WRITER_PASSWORD must be set}
+      DBT_MANIFEST_PATH: /app/dbt/target/manifest.json
+      GOLD_PROMOTER_USER: gold_promoter
+      GOLD_PROMOTER_PASSWORD: ${GOLD_PROMOTER_PASSWORD:?GOLD_PROMOTER_PASSWORD must be set}
+    volumes:
+      - ./data/olist:/app/data/olist:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      prefect-server:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mcp-server:
+    image: agentic-medallion-pipeline-mcp-server:local
+    build:
+      context: .
+      dockerfile: docker/mcp-server/Dockerfile
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-analytics_db}
+      MCP_READER_USER: mcp_reader
+      MCP_READER_PASSWORD: ${MCP_READER_PASSWORD:?MCP_READER_PASSWORD must be set}
+      MCP_TRANSPORT: http
+      MCP_HTTP_HOST: 0.0.0.0
+      MCP_HTTP_PORT: "8000"
+    ports:
+      - "127.0.0.1:8000:8000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import urllib.request, urllib.error, sys
+          try:
+              urllib.request.urlopen("http://localhost:8000/mcp", timeout=2)
+          except urllib.error.HTTPError:
+              pass  # any HTTP response (even 4xx) means the server is alive
+          except Exception:
+              sys.exit(1)
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  prefect-data:

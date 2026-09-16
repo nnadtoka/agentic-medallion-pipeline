@@ -1,0 +1,64 @@
+template_id: metric_over_time
+name: Metric trended over time
+description: >
+  Trends a business metric -- order count, GMV, average order value,
+  average review score, late delivery rate, freight-to-item-value ratio,
+  or cancellation rate -- by month or quarter, over an optional date
+  range. Answers questions like "how has GMV trended month over month" or
+  "what's the quarter-over-quarter average order value".
+sql_template: |
+  select
+      date_trunc(%(date_grain)s, o.order_purchase_timestamp) as period,
+      {metric} as metric_value
+  from gold.fct_orders o
+  where (%(date_from)s::date is null or o.order_purchase_timestamp >= %(date_from)s::date)
+    and (%(date_to)s::date is null or o.order_purchase_timestamp < %(date_to)s::date + interval '1 day')
+  group by period
+  order by period
+  limit %(limit)s
+target_schema: gold
+max_limit: 100
+parameters:
+  - name: date_grain
+    kind: value
+    type: string
+    required: true
+    enum: [month, quarter]
+    # A plain value param, not identifier-kind: date_trunc()'s first
+    # argument is an ordinary text value in Postgres, not a column/table
+    # identifier, so normal parameter binding (plus the enum constraint
+    # below) is the correct and sufficient guardrail here -- no SQL
+    # fragment substitution needed.
+  - name: metric
+    kind: identifier
+    type: string
+    required: true
+    enum:
+      order_count: count(*)
+      gmv: sum(o.order_item_value)
+      avg_order_value: avg(o.order_item_value)
+      avg_review_score: avg(o.average_review_score)
+      late_delivery_rate: >-
+        avg(case when o.order_delivered_customer_date is not null
+                 and o.order_estimated_delivery_date is not null
+                 then (o.order_delivered_customer_date > o.order_estimated_delivery_date)::int
+            end)
+      freight_ratio: sum(o.freight_value) / nullif(sum(o.item_value), 0)
+      cancellation_rate: avg((o.order_status = 'canceled')::int)
+    # Same metric enum as top_n_by_metric.yaml, kept in sync manually --
+    # both operate on fct_orders at order grain, so the same expressions
+    # apply unchanged.
+  - name: date_from
+    kind: value
+    type: date
+    required: false
+  - name: date_to
+    kind: value
+    type: date
+    required: false
+  - name: limit
+    kind: value
+    type: integer
+    required: false
+    default: 24
+    min: 1

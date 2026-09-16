@@ -1,0 +1,62 @@
+# =========================
+# Environment / secrets
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# Raw / local data
+# =========================
+data/
+
+# =========================
+# Python
+# =========================
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+.venv/
+venv/
+env/
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# =========================
+# VS Code
+# =========================
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# =========================
+# dbt
+# =========================
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+dbt/.user.yml
+
+# =========================
+# Prefect
+# =========================
+.prefect/
+
+# =========================
+# Logs / temporary files
+# =========================
+*.log
+*.tmp
+*.swp
+*.swo
+
+# =========================
+# macOS / Windows
+# =========================
+.DS_Store
+Thumbs.db

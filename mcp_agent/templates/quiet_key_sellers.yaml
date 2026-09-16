@@ -1,0 +1,45 @@
+template_id: quiet_key_sellers
+name: Quiet key sellers
+description: >
+  High-value sellers who have gone quiet -- combines a recency threshold on their last
+  order with a GMV ranking, the seller-side analog of quiet_key_accounts. Answers "which of
+  our best sellers haven't sold recently" or "how much seller-side business is sitting
+  idle".
+sql_template: |
+  with reference_date as (
+      select max(order_purchase_timestamp) as today from gold.fct_orders
+  )
+  select
+      s.seller_id,
+      s.gmv,
+      s.order_count,
+      s.avg_review_score,
+      s.latest_order_ts,
+      extract(day from r.today - s.latest_order_ts)::int as days_since_last_order
+  from gold.agg_seller_performance s
+  cross join reference_date r
+  where s.latest_order_ts is not null
+    and extract(day from r.today - s.latest_order_ts) >= %(min_days_since_last_order)s
+  order by s.gmv desc
+  limit %(limit)s
+target_schema: gold
+max_limit: 100
+parameters:
+  - name: min_days_since_last_order
+    kind: value
+    type: integer
+    required: true
+    min: 0
+    max: 3650
+    # As of / "today" is the dataset's own most recent order date (a
+    # reference_date CTE, computed fresh per query), not real wall-clock
+    # time -- the same fix applied to customer_order_history_lookup.yaml/
+    # quiet_key_accounts.yaml and to agg_customer_lifetime_value.sql, for
+    # the same reason: trusting now() would make every seller look quiet
+    # for however long it's been since the dataset's last real order.
+  - name: limit
+    kind: value
+    type: integer
+    required: false
+    default: 10
+    min: 1

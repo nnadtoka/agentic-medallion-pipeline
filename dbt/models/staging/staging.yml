@@ -1,0 +1,185 @@
+version: 2
+
+models:
+  - name: stg_olist_orders
+    description: Clean order records at one row per order, including the explicit purchase date used for partition processing.
+    columns:
+      - name: order_id
+        description: Unique identifier assigned to the order.
+        data_tests: [not_null, unique]
+      - {name: customer_id, description: "Customer identifier associated with the order."}
+      - name: order_status
+        description: Latest source-system status of the order.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [approved, canceled, created, delivered, invoiced, processing, shipped, unavailable]
+      - {name: order_purchase_timestamp, description: "Timestamp when the customer placed the order."}
+      - name: order_purchase_date
+        description: Calendar date derived from the order purchase timestamp.
+        data_tests: [not_null]
+      - {name: order_approved_at, description: "Timestamp when payment approval was recorded."}
+      - {name: order_delivered_carrier_date, description: "Timestamp when the order was handed to the carrier."}
+      - {name: order_delivered_customer_date, description: "Timestamp when the order was delivered to the customer."}
+      - {name: order_estimated_delivery_date, description: "Estimated customer delivery timestamp provided at purchase."}
+      - name: created_ts
+        description: Timestamp when ingestion wrote the corresponding Bronze row.
+        data_tests: [not_null]
+      - name: src_batch_id
+        description: Identifier of the ingestion batch that supplied the row.
+        data_tests: [not_null]
+      - {name: source_system, description: "Source file or system recorded by ingestion."}
+
+  - name: stg_olist_order_items
+    description: Clean order line items at one row per order and item sequence.
+    columns:
+      - name: order_id
+        description: Identifier of the order containing the item.
+        data_tests: [not_null]
+      - name: order_item_id
+        description: One-based item sequence within the order.
+        data_tests: [not_null]
+      - {name: product_id, description: "Identifier of the purchased product."}
+      - {name: seller_id, description: "Identifier of the seller fulfilling the item."}
+      - {name: shipping_limit_date, description: "Seller shipping deadline for the item."}
+      - name: price
+        description: Item price in Brazilian reais.
+        data_tests: [non_negative]
+      - name: freight_value
+        description: Freight amount allocated to the item in Brazilian reais.
+        data_tests: [non_negative]
+      - name: created_ts
+        description: Timestamp when ingestion wrote the corresponding Bronze row.
+        data_tests: [not_null]
+      - {name: src_batch_id, description: "Identifier of the ingestion batch that supplied the row."}
+      - {name: source_system, description: "Source file or system recorded by ingestion."}
+
+  - name: stg_olist_order_payments
+    description: Clean payment records at one row per order and payment sequence.
+    columns:
+      - name: order_id
+        description: Identifier of the order receiving the payment.
+        data_tests: [not_null]
+      - name: payment_sequential
+        description: Sequence of the payment record within the order.
+        data_tests: [not_null]
+      - name: payment_type
+        description: Payment method reported by Olist.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [boleto, credit_card, debit_card, not_defined, voucher]
+      - name: payment_installments
+        description: Number of installments selected for the payment.
+        data_tests: [non_negative]
+      - name: payment_value
+        description: Payment amount in Brazilian reais.
+        data_tests: [non_negative]
+      - name: created_ts
+        description: Timestamp when ingestion wrote the corresponding Bronze row.
+        data_tests: [not_null]
+      - {name: src_batch_id, description: "Identifier of the ingestion batch that supplied the row."}
+      - {name: source_system, description: "Source file or system recorded by ingestion."}
+
+  - name: stg_olist_order_reviews
+    description: Clean customer reviews, potentially containing multiple review records per order.
+    columns:
+      - name: review_id
+        description: Identifier assigned to the review.
+        data_tests: [not_null]
+      - name: order_id
+        description: Identifier of the reviewed order.
+        data_tests: [not_null]
+      - name: review_score
+        description: Customer satisfaction score from 1 through 5.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5]
+      - {name: review_comment_title, description: "Optional review title supplied by the customer."}
+      - {name: review_comment_message, description: "Optional review text supplied by the customer."}
+      - {name: review_creation_date, description: "Timestamp when the review survey was created."}
+      - {name: review_answer_timestamp, description: "Timestamp when the customer submitted the review."}
+      - name: created_ts
+        description: Timestamp when ingestion wrote the corresponding Bronze row.
+        data_tests: [not_null]
+      - {name: src_batch_id, description: "Identifier of the ingestion batch that supplied the row."}
+      - {name: source_system, description: "Source file or system recorded by ingestion."}
+
+  - name: stg_olist_customers
+    description: Clean customer records at one row per order-specific customer identifier.
+    columns:
+      - name: customer_id
+        description: Order-specific customer identifier used by the orders dataset.
+        data_tests: [not_null, unique]
+      - name: customer_unique_id
+        description: Stable identifier used to recognize the same customer across orders.
+        data_tests: [not_null]
+      - {name: customer_zip_code_prefix, description: "First five digits of the customer's postal code."}
+      - {name: customer_city, description: "Customer city as supplied by Olist."}
+      - {name: customer_state, description: "Two-letter Brazilian state code for the customer."}
+      - name: created_ts
+        description: Timestamp when ingestion wrote the corresponding Bronze row.
+        data_tests: [not_null]
+      - {name: src_batch_id, description: "Identifier of the ingestion batch that supplied the row."}
+      - {name: source_system, description: "Source file or system recorded by ingestion."}
+
+  - name: stg_olist_products
+    description: Clean product records at one row per product with source spelling errors normalized.
+    columns:
+      - name: product_id
+        description: Unique identifier assigned to the product.
+        data_tests: [not_null, unique]
+      - {name: product_category_name, description: "Product category name in Portuguese."}
+      - {name: product_name_length, description: "Character count of the product name."}
+      - {name: product_description_length, description: "Character count of the product description."}
+      - {name: product_photos_qty, description: "Number of product photos published in the listing."}
+      - {name: product_weight_g, description: "Product weight in grams."}
+      - {name: product_length_cm, description: "Product package length in centimeters."}
+      - {name: product_height_cm, description: "Product package height in centimeters."}
+      - {name: product_width_cm, description: "Product package width in centimeters."}
+      - name: created_ts
+        description: Timestamp when ingestion wrote the corresponding Bronze row.
+        data_tests: [not_null]
+      - {name: src_batch_id, description: "Identifier of the ingestion batch that supplied the row."}
+      - {name: source_system, description: "Source file or system recorded by ingestion."}
+
+  - name: stg_olist_sellers
+    description: Clean seller records at one row per seller.
+    columns:
+      - name: seller_id
+        description: Unique identifier assigned to the seller.
+        data_tests: [not_null, unique]
+      - {name: seller_zip_code_prefix, description: "First five digits of the seller's postal code."}
+      - {name: seller_city, description: "Seller city as supplied by Olist."}
+      - {name: seller_state, description: "Two-letter Brazilian state code for the seller."}
+      - name: created_ts
+        description: Timestamp when ingestion wrote the corresponding Bronze row.
+        data_tests: [not_null]
+      - {name: src_batch_id, description: "Identifier of the ingestion batch that supplied the row."}
+      - {name: source_system, description: "Source file or system recorded by ingestion."}
+
+  - name: stg_olist_geolocation
+    description: Clean postal-prefix geolocation observations; a postal prefix may appear with multiple coordinates.
+    columns:
+      - {name: geolocation_zip_code_prefix, description: "First five digits of the represented postal code."}
+      - {name: geolocation_lat, description: "Latitude of the geolocation observation."}
+      - {name: geolocation_lng, description: "Longitude of the geolocation observation."}
+      - {name: geolocation_city, description: "City associated with the geolocation observation."}
+      - {name: geolocation_state, description: "Two-letter Brazilian state code associated with the observation."}
+      - {name: created_ts, description: "Timestamp when ingestion wrote the corresponding Bronze row."}
+      - {name: src_batch_id, description: "Identifier of the ingestion batch that supplied the row."}
+      - {name: source_system, description: "Source file or system recorded by ingestion."}
+
+  - name: stg_olist_category_translation
+    description: Portuguese-to-English product category lookup at one row per Portuguese category name.
+    columns:
+      - name: product_category_name
+        description: Product category name in Portuguese.
+        data_tests: [not_null, unique]
+      - {name: product_category_name_english, description: "English translation of the product category name."}
+      - name: created_ts
+        description: Timestamp when ingestion wrote the corresponding Bronze row.
+        data_tests: [not_null]
+      - {name: src_batch_id, description: "Identifier of the ingestion batch that supplied the row."}
+      - {name: source_system, description: "Source file or system recorded by ingestion."}

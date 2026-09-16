@@ -1,0 +1,13 @@
+agentic_medallion_pipeline:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('DBT_HOST', '127.0.0.1') }}"
+      port: "{{ env_var('DBT_PORT', '5433') | int }}"
+      user: dbt_transformer
+      password: "{{ env_var('DBT_PASSWORD') }}"
+      dbname: "{{ env_var('POSTGRES_DB', 'analytics_db') }}"
+      schema: staging
+      threads: 4
+      connect_timeout: 10

@@ -1,0 +1,52 @@
+template_id: quiet_key_accounts
+name: Quiet key accounts
+description: >
+  High-value customers who have gone quiet -- combines a recency threshold
+  with a value ranking, neither pure top-N nor a pure lookup. Answers "how
+  much revenue is sitting with customers who haven't ordered recently" or
+  "which of our best customers have gone quiet".
+# days_since_last_order (and the threshold below) is measured from the
+# dataset's own max order date, not now() -- same reasoning as
+# customer_order_history_lookup.yaml. With only ~33 days of orders
+# currently ingested (Oct-Nov 2017), meaningful threshold values today are
+# roughly 0-33; the parameter itself allows up to 3650 so this keeps
+# working as more data is ingested.
+sql_template: |
+  with reference_date as (
+      select max(order_purchase_timestamp) as today from gold.fct_orders
+  )
+  select
+      c.customer_unique_id,
+      (
+          select cc.customer_state
+          from gold.dim_customer cc
+          where cc.customer_unique_id = c.customer_unique_id
+          order by cc.latest_order_ts desc nulls last
+          limit 1
+      ) as customer_state,
+      count(distinct o.order_id) as order_count,
+      coalesce(sum(o.order_item_value), 0) as lifetime_value,
+      max(o.order_purchase_timestamp) as latest_order_ts,
+      extract(day from r.today - max(o.order_purchase_timestamp))::int as days_since_last_order
+  from gold.dim_customer c
+  join gold.fct_orders o on o.customer_id = c.customer_id
+  cross join reference_date r
+  group by c.customer_unique_id, r.today
+  having extract(day from r.today - max(o.order_purchase_timestamp)) >= %(min_days_since_last_order)s
+  order by lifetime_value desc
+  limit %(limit)s
+target_schema: gold
+max_limit: 100
+parameters:
+  - name: min_days_since_last_order
+    kind: value
+    type: integer
+    required: true
+    min: 0
+    max: 3650
+  - name: limit
+    kind: value
+    type: integer
+    required: false
+    default: 10
+    min: 1

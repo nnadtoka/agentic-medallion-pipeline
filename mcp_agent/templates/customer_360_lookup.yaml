@@ -1,0 +1,65 @@
+template_id: customer_360_lookup
+name: Customer 360 lookup
+description: >
+  Full 360-degree picture for one customer -- lifetime value, order count, tenure, latest
+  known location, product/category/merchant reach, repeat-buyer status, average review
+  score, and 7/30-day category interests -- as of the latest snapshot or an explicit
+  historical date. Answers "what does this customer's full profile look like" or "how many
+  products/categories/merchants has this customer engaged with".
+sql_template: |
+  select
+      lv.as_of_date,
+      lv.customer_unique_id,
+      l.zip_code_prefix,
+      l.city,
+      l.state,
+      lv.first_order_ts,
+      lv.latest_order_ts,
+      lv.order_count,
+      lv.delivered_order_count,
+      lv.canceled_order_count,
+      lv.gross_order_value,
+      lv.payment_value,
+      lv.average_order_value,
+      lv.average_review_score,
+      lv.days_since_last_order,
+      lv.customer_tenure_days,
+      lv.active_month_count,
+      lv.distinct_product_count,
+      lv.distinct_category_count,
+      lv.distinct_merchant_count,
+      lv.repeat_customer,
+      i.top_category_7d,
+      i.top_category_30d,
+      i.item_count_7d,
+      i.item_value_7d,
+      i.item_count_30d,
+      i.item_value_30d,
+      i.categories
+  from gold.agg_customer_lifetime_value lv
+  left join gold.dim_location l on l.location_id = lv.location_id
+  left join gold.agg_customer_interests i
+    on i.as_of_date = lv.as_of_date and i.customer_unique_id = lv.customer_unique_id
+  where lv.customer_unique_id = %(customer_unique_id)s
+    and lv.as_of_date = coalesce(
+        %(as_of_date)s::date,
+        (select max(as_of_date) from gold.agg_customer_lifetime_value)
+    )
+target_schema: gold
+max_limit: 1
+parameters:
+  - name: customer_unique_id
+    kind: value
+    type: string
+    required: true
+  - name: as_of_date
+    kind: value
+    type: date
+    required: false
+    # Defaults to the latest available snapshot (same date
+    # gold.customer_360_current itself uses) when not supplied. Passing an
+    # explicit date lets this answer "what did this customer's profile look
+    # like as of <date>" -- currently only 2 distinct as_of_date values
+    # exist in gold (2017-11-06 and 2018-10-17, one from before and one
+    # after a full-history backfill), so this is real but thin: a genuine
+    # two-point comparison, not yet a rich trend.
