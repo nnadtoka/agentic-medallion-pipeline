@@ -8,7 +8,7 @@ semantic catalog, and a read-only **MCP server** that lets LLM agents query the 
 
 > ⚠️ **Local demo, not hardened for network exposure.** Credentials live in `.env` (gitignored);
 > the database binds to `127.0.0.1` only. The Postgres image uses `trust` auth for connections
-> *inside* the container (image default) — fine locally, not a production posture.
+> *inside* the container (image default) — fine locally, not a production setup.
 
 ## Stack
 PostgreSQL 16 + pgvector · dbt-core (postgres) · Prefect 3 · Great Expectations · FastMCP · Docker Compose
