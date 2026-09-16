@@ -34,6 +34,12 @@ PostgreSQL 16 + pgvector · dbt-core (postgres) · Prefect 3 · Great Expectatio
 Everything above `gold` (staging/intermediate/marts_candidate) is working state; only `gold` is
 what read-only consumers (`analyst_junior`, `mcp_reader`) can query.
 
+![Ingestion and promotion](docs/diagrams/ingestion_and_promotion.png)
+
+Editable source (Excalidraw): [`docs/diagrams/ingestion_and_promotion.excalidraw`](docs/diagrams/ingestion_and_promotion.excalidraw).
+More diagrams: gold-layer ER detail ([`gold_data_model.excalidraw`](docs/diagrams/gold_data_model.excalidraw)) and
+the full per-layer model map ([`medallion_layers_full.excalidraw`](docs/diagrams/medallion_layers_full.excalidraw)).
+
 Known gaps found via adversarial code review, not yet fixed: see [`FUTURE_IMPROVEMENTS.md`](FUTURE_IMPROVEMENTS.md).
 
 ## Example business questions this answers
