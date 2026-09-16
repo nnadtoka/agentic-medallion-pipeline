@@ -10,6 +10,10 @@ semantic catalog, and a read-only **MCP server** that lets LLM agents query the 
 > the database binds to `127.0.0.1` only. The Postgres image uses `trust` auth for connections
 > *inside* the container (image default) — fine locally, not a production setup.
 
+![High-level agent flow: allowed path through the semantic layer vs. the blocked shortcut](docs/diagrams/high_level_mcp_agent_flow_diagram.png)
+
+Editable source: [`docs/diagrams/high_level_mcp_agent_flow_diagram.excalidraw`](docs/diagrams/high_level_mcp_agent_flow_diagram.excalidraw).
+
 ## Stack
 PostgreSQL 16 + pgvector · dbt-core (postgres) · Prefect 3 · Great Expectations · FastMCP · Docker Compose
 
